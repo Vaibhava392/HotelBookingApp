@@ -6,5 +6,6 @@ public class HotelBookingApp {
         System.out.println("--------------------------------------------------");
 
         System.out.println("Application started successfully.");
+
     }
 }
