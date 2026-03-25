@@ -1,84 +1,100 @@
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.stream.Collectors;
+import java.util.HashMap;
+import java.util.Map;
 
-// --- Models ---
-class Reservation {
-    private final String bookingId;
-    private final String guestName;
-    private final String roomType;
-    private final double price;
-
-    public Reservation(String bookingId, String guestName, String roomType, double price) {
-        this.bookingId = bookingId;
-        this.guestName = guestName;
-        this.roomType = roomType;
-        this.price = price;
-    }
-
-    public double getPrice() { return price; }
-
-    @Override
-    public String toString() {
-        return String.format("[%s] Guest: %-10s | Room: %-10s | Paid: $%.2f",
-                bookingId, guestName, roomType, price);
+// --- Custom Exceptions ---
+// Custom exceptions provide domain-specific context for errors
+class BookingValidationException extends Exception {
+    public BookingValidationException(String message) {
+        super(message);
     }
 }
 
-// --- Historical Tracking ---
-class BookingHistory {
-    // List preserves insertion order, serving as a chronological audit trail
-    private final List<Reservation> history = new ArrayList<>();
-
-    public void record(Reservation reservation) {
-        history.add(reservation);
-    }
-
-    public List<Reservation> getAllRecords() {
-        // Return unmodifiable list to ensure reporting doesn't modify stored data
-        return Collections.unmodifiableList(history);
+class RoomUnavailableException extends Exception {
+    public RoomUnavailableException(String message) {
+        super(message);
     }
 }
 
-// --- Reporting Service ---
-class BookingReportService {
-    public void generateSummary(List<Reservation> records) {
-        System.out.println("\n--- Booking Operational Report ---");
-        System.out.println("Total Bookings: " + records.size());
+// --- Validation Logic ---
+class BookingValidator {
+    public static void validateInput(String guestName, String roomType) throws BookingValidationException {
+        if (guestName == null || guestName.trim().isEmpty()) {
+            throw new BookingValidationException("Guest name cannot be empty.");
+        }
+        if (roomType == null || roomType.trim().isEmpty()) {
+            throw new BookingValidationException("Room type must be specified.");
+        }
+    }
+}
 
-        double totalRevenue = records.stream()
-                .mapToDouble(Reservation::getPrice)
-                .sum();
+// --- System State Guarding ---
+class InventoryManager {
+    private final Map<String, Integer> inventory = new HashMap<>();
 
-        System.out.printf("Total Revenue: $%.2f%n", totalRevenue);
-        System.out.println("----------------------------------");
+    public InventoryManager() {
+        inventory.put("SUITE", 2);
+        inventory.put("SINGLE", 5);
     }
 
-    public void showDetailedAudit(List<Reservation> records) {
-        System.out.println("\n--- Chronological Audit Trail ---");
-        records.forEach(System.out::println);
+    public void checkAndDeduct(String roomType) throws RoomUnavailableException {
+        String key = roomType.toUpperCase();
+
+        // Validation: Check if room type exists
+        if (!inventory.containsKey(key)) {
+            throw new RoomUnavailableException("Room type '" + roomType + "' does not exist in our system.");
+        }
+
+        // Validation: Guarding against negative inventory
+        int currentStock = inventory.get(key);
+        if (currentStock <= 0) {
+            throw new RoomUnavailableException("No " + key + " rooms currently available.");
+        }
+
+        // If all guards pass, update state
+        inventory.replace(key, currentStock - 1);
+        System.out.println("Inventory updated: " + key + " rooms left: " + (currentStock - 1));
     }
 }
 
 // --- Main Application ---
 public class HotelBookingApp {
+    private static final InventoryManager inventory = new InventoryManager();
+
     public static void main(String[] args) {
-        // Initialize components
-        BookingHistory history = new BookingHistory();
-        BookingReportService reportService = new BookingReportService();
+        // Test Case 1: Invalid Input (Empty Name)
+        processBooking("", "Suite");
 
-        // 1. Simulate Bookings (Flow: Confirmed -> Added to History)
-        System.out.println("Processing bookings...");
-        history.record(new Reservation("BK-101", "Alice", "Suite", 250.00));
-        history.record(new Reservation("BK-102", "Bob", "Single", 100.00));
-        history.record(new Reservation("BK-103", "Charlie", "Double", 150.00));
+        // Test Case 2: Invalid Room Type
+        processBooking("Alice", "Penthouse");
 
-        // 2. Admin Request: Operational Visibility
-        List<Reservation> allRecords = history.getAllRecords();
+        // Test Case 3: Successful Bookings until exhaustion
+        processBooking("Bob", "Suite");
+        processBooking("Charlie", "Suite");
 
-        // 3. Generate Reports
-        reportService.showDetailedAudit(allRecords);
-        reportService.generateSummary(allRecords);
+        // Test Case 4: Room Exhaustion (Fail-Fast)
+        processBooking("Dave", "Suite");
+    }
+
+    public static void processBooking(String guestName, String roomType) {
+        try {
+            System.out.println("\nAttempting booking for: " + (guestName.isEmpty() ? "[Empty]" : guestName));
+
+            // 1. Input Validation
+            BookingValidator.validateInput(guestName, roomType);
+
+            // 2. State Validation & Inventory Update
+            inventory.checkAndDeduct(roomType);
+
+            System.out.println("SUCCESS: Booking confirmed for " + guestName);
+
+        } catch (BookingValidationException | RoomUnavailableException e) {
+            // 3. Graceful Failure Handling
+            System.err.println("REJECTED: " + e.getMessage());
+        } catch (Exception e) {
+            // Catch-all for unexpected system errors to keep the app running
+            System.err.println("CRITICAL ERROR: An unexpected issue occurred.");
+        } finally {
+            System.out.println("System Status: Ready for next request.");
+        }
     }
 }
