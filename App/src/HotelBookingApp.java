@@ -1,116 +1,72 @@
-import java.util.HashMap;
-import java.util.Map;
+import java.util.LinkedList;
+import java.util.Queue;
+import java.util.UUID;
 
 /**
- * Hotel Booking Management System - Use Case 3
- * This version introduces the HashMap to centralize room inventory.
- * * @author [Your Name]
- * @version 1.2
+ * Reservation: Represents the guest's intent to book.
+ * Contains only the data necessary to identify the request.
  */
+class ReservationRequest {
+    private final String requestId;
+    private final String guestName;
+    private final String roomType;
 
-// --- Domain Layer (from Use Case 2) ---
-
-abstract class Room {
-    private String roomType;
-    private double pricePerNight;
-
-    public Room(String roomType, double pricePerNight) {
+    public ReservationRequest(String guestName, String roomType) {
+        this.requestId = UUID.randomUUID().toString().substring(0, 8);
+        this.guestName = guestName;
         this.roomType = roomType;
-        this.pricePerNight = pricePerNight;
     }
-
-    public String getRoomType() { return roomType; }
-    public abstract String getRoomFeatures();
 
     @Override
     public String toString() {
-        return String.format("[%s] - Features: %s", roomType, getRoomFeatures());
+        return String.format("Request ID: %s | Guest: %s | Room: %s", requestId, guestName, roomType);
     }
 }
-
-class SingleRoom extends Room {
-    public SingleRoom() { super("Single", 100.0); }
-    public String getRoomFeatures() { return "1 Twin Bed, Workspace"; }
-}
-
-class DoubleRoom extends Room {
-    public DoubleRoom() { super("Double", 180.0); }
-    public String getRoomFeatures() { return "2 Queen Beds, City View"; }
-}
-
-class SuiteRoom extends Room {
-    public SuiteRoom() { super("Suite", 350.0); }
-    public String getRoomFeatures() { return "King Bed, Private Balcony"; }
-}
-
-// --- New Inventory Layer ---
 
 /**
- * RoomInventory encapsulates the HashMap used to track availability.
- * It provides a "Single Source of Truth" for the system state.
+ * Booking Request Queue: Manages the intake and order of requests.
  */
-class RoomInventory {
-    // Key: Room Type Name (String), Value: Available Count (Integer)
-    private Map<String, Integer> inventory;
+class BookingQueue {
+    // Using a LinkedList as a Queue to maintain FIFO (First-In-First-Out)
+    private final Queue<ReservationRequest> queue = new LinkedList<>();
 
-    public RoomInventory() {
-        this.inventory = new HashMap<>();
+    // Adds a request to the end of the line
+    public void enqueue(ReservationRequest request) {
+        System.out.println("Enqueuing: " + request);
+        queue.add(request);
     }
 
-    /**
-     * Registers or updates the count for a specific room type.
-     * Demonstrates O(1) average time complexity for insertion/updates.
-     */
-    public void updateAvailability(String roomType, int count) {
-        inventory.put(roomType, count);
+    // Prepares the next request for the allocation system (but doesn't process it yet)
+    public ReservationRequest peekNext() {
+        return queue.peek();
     }
 
-    /**
-     * Retrieves current availability. Returns 0 if room type is not found.
-     */
-    public int getAvailableCount(String roomType) {
-        return inventory.getOrDefault(roomType, 0);
+    public int getQueueSize() {
+        return queue.size();
     }
 
-    /**
-     * Prints the entire state of the inventory.
-     */
-    public void displayInventory() {
-        System.out.println("Current Inventory Status:");
-        for (Map.Entry<String, Integer> entry : inventory.entrySet()) {
-            System.out.println(" - " + entry.getKey() + ": " + entry.getValue() + " rooms available");
-        }
+    public boolean isEmpty() {
+        return queue.isEmpty();
     }
 }
-
-// --- Application Entry Point ---
 
 public class HotelBookingApp {
     public static void main(String[] args) {
-        System.out.println("=== Hotel Booking Management System v1.2 ===\n");
+        BookingQueue bookingQueue = new BookingQueue();
 
-        // 1. Initialize Inventory Component
-        RoomInventory inventoryManager = new RoomInventory();
+        // 1. Simulation: Guests submitting requests rapidly
+        System.out.println("--- Intake Stage: Receiving Requests ---");
+        bookingQueue.enqueue(new ReservationRequest("Alice", "Deluxe Suite"));
+        bookingQueue.enqueue(new ReservationRequest("Bob", "Penthouse"));
+        bookingQueue.enqueue(new ReservationRequest("Charlie", "Deluxe Suite"));
 
-        // 2. Register Room Types (Centralizing the state)
-        inventoryManager.updateAvailability("Single", 10);
-        inventoryManager.updateAvailability("Double", 5);
-        inventoryManager.updateAvailability("Suite", 2);
+        // 2. Verification of Requirements
+        System.out.println("\n--- Queue Status ---");
+        System.out.println("Total requests waiting: " + bookingQueue.getQueueSize());
 
-        // 3. Create Domain Objects
-        Room s = new SingleRoom();
-        Room d = new DoubleRoom();
-        Room ste = new SuiteRoom();
+        // 3. Demonstrating Order Preservation (FIFO)
+        System.out.println("Next request to be processed: " + bookingQueue.peekNext());
 
-        // 4. Display System State
-        System.out.println("Room Catalog Details:");
-        System.out.println(s + " | Availability: " + inventoryManager.getAvailableCount("Single"));
-        System.out.println(d + " | Availability: " + inventoryManager.getAvailableCount("Double"));
-        System.out.println(ste + " | Availability: " + inventoryManager.getAvailableCount("Suite"));
-
-        System.out.println("\n--------------------------------------------------");
-        inventoryManager.displayInventory();
-        System.out.println("--------------------------------------------------");
+        System.out.println("\nRequirement Check: No inventory has been mutated. Requests are simply ordered.");
     }
 }
-
