@@ -1,64 +1,77 @@
-import java.util.LinkedList;
-import java.util.Queue;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
+import java.io.*;
+import java.util.Properties;
 
-// --- Shared Resource: The Booking System ---
-class ThreadSafeHotel {
-    private int availableRooms = 2; // Limited supply to test contention
-    private final Queue<String> bookingQueue = new LinkedList<>();
+// --- Persistence Service ---
+class PersistenceService {
+    private final String STORAGE_FILE = "hotel_state.properties";
 
-    // 'synchronized' ensures only one thread enters this method at a time
-    public synchronized void processBooking(String guestName) {
-        System.out.println("[Thread " + Thread.currentThread().getId() + "] Processing: " + guestName);
+    // Serialization: Saving in-memory state to a file
+    public void saveState(int inventory, int totalBookings) {
+        try (OutputStream output = new FileOutputStream(STORAGE_FILE)) {
+            Properties prop = new Properties();
+            prop.setProperty("inventory", String.valueOf(inventory));
+            prop.setProperty("totalBookings", String.valueOf(totalBookings));
 
-        // Critical Section: Checking and updating inventory
-        if (availableRooms > 0) {
-            // Simulate processing time to increase the chance of a race condition if not synchronized
-            try { Thread.sleep(100); } catch (InterruptedException e) { }
-
-            availableRooms--;
-            bookingQueue.add(guestName);
-            System.out.println("SUCCESS: " + guestName + " secured a room. Rooms left: " + availableRooms);
-        } else {
-            System.err.println("REJECTED: No rooms left for " + guestName);
+            prop.store(output, "System State Snapshot");
+            System.out.println(">>> STATE PERSISTED: Inventory and Bookings saved to disk.");
+        } catch (IOException io) {
+            System.err.println("Error saving state: " + io.getMessage());
         }
     }
 
-    public int getFinalRoomCount() {
-        return availableRooms;
+    // Deserialization: Restoring state from a file
+    public int[] loadState() {
+        File file = new File(STORAGE_FILE);
+        if (!file.exists()) {
+            System.out.println(">>> NO PERSISTED DATA FOUND: Starting with fresh state.");
+            return new int[]{5, 0}; // Default: 5 rooms, 0 bookings
+        }
+
+        try (InputStream input = new FileInputStream(STORAGE_FILE)) {
+            Properties prop = new Properties();
+            prop.load(input);
+
+            int inventory = Integer.parseInt(prop.getProperty("inventory"));
+            int totalBookings = Integer.parseInt(prop.getProperty("totalBookings"));
+
+            System.out.println(">>> STATE RECOVERED: Restored from last session.");
+            return new int[]{inventory, totalBookings};
+        } catch (IOException | NumberFormatException e) {
+            System.err.println("RECOVERY FAILED: Corrupted file. Using defaults.");
+            return new int[]{5, 0};
+        }
     }
 }
 
-// --- Main Application: Simulating Concurrent Users ---
+// --- Stateful Application ---
 public class HotelBookingApp {
-    public static void main(String[] args) throws InterruptedException {
-        ThreadSafeHotel hotel = new ThreadSafeHotel();
+    private static int roomInventory;
+    private static int bookingCount;
+    private static final PersistenceService persistence = new PersistenceService();
 
-        // Create a pool of threads to simulate multiple users acting at once
-        ExecutorService executor = Executors.newFixedThreadPool(5);
+    public static void main(String[] args) {
+        // 1. System Startup: Recover State
+        int[] recoveredState = persistence.loadState();
+        roomInventory = recoveredState[0];
+        bookingCount = recoveredState[1];
 
-        String[] guests = {"Alice", "Bob", "Charlie", "Dave", "Eve"};
+        displayStatus("Startup Status");
 
-        System.out.println("--- Starting Concurrent Booking Simulation ---");
-        System.out.println("Initial Rooms: 2 | Total Guests: 5\n");
-
-        for (String guest : guests) {
-            executor.submit(() -> hotel.processBooking(guest));
+        // 2. Simulate Operations
+        System.out.println("\n--- Processing New Booking ---");
+        if (roomInventory > 0) {
+            roomInventory--;
+            bookingCount++;
+            System.out.println("Booking successful!");
         }
 
-        // Shut down the executor and wait for all threads to finish
-        executor.shutdown();
-        executor.awaitTermination(5, TimeUnit.SECONDS);
+        // 3. System Shutdown: Persist State
+        displayStatus("Pre-Shutdown Status");
+        persistence.saveState(roomInventory, bookingCount);
+        System.out.println("Application Closed safely.");
+    }
 
-        System.out.println("\n--- Simulation Complete ---");
-        System.out.println("Final Inventory Count: " + hotel.getFinalRoomCount());
-
-        if (hotel.getFinalRoomCount() < 0) {
-            System.err.println("CRITICAL FAILURE: Race condition detected (Negative Inventory)!");
-        } else {
-            System.out.println("SYSTEM INTEGRITY: Inventory consistent.");
-        }
+    private static void displayStatus(String label) {
+        System.out.println("[" + label + "] Rooms Available: " + roomInventory + " | Total Bookings: " + bookingCount);
     }
 }
