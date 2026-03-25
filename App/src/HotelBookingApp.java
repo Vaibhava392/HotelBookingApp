@@ -1,75 +1,64 @@
-import java.util.*;
+import java.util.LinkedList;
+import java.util.Queue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
-// --- Custom Exception ---
-class CancellationException extends Exception {
-    public CancellationException(String message) {
-        super(message);
-    }
-}
+// --- Shared Resource: The Booking System ---
+class ThreadSafeHotel {
+    private int availableRooms = 2; // Limited supply to test contention
+    private final Queue<String> bookingQueue = new LinkedList<>();
 
-// --- Rollback & Inventory Management ---
-class ReservationSystem {
-    private int availableRooms = 5;
-    // Stack tracks Room IDs for LIFO rollback behavior
-    private final Stack<String> allocatedRoomIds = new Stack<>();
-    // Map stores active bookings for validation
-    private final Map<String, String> activeBookings = new HashMap<>();
+    // 'synchronized' ensures only one thread enters this method at a time
+    public synchronized void processBooking(String guestName) {
+        System.out.println("[Thread " + Thread.currentThread().getId() + "] Processing: " + guestName);
 
-    public void confirmBooking(String bookingId, String roomId) {
-        activeBookings.put(bookingId, roomId);
-        allocatedRoomIds.push(roomId);
-        availableRooms--;
-        System.out.println("Confirmed: " + bookingId + " assigned to Room " + roomId);
-    }
+        // Critical Section: Checking and updating inventory
+        if (availableRooms > 0) {
+            // Simulate processing time to increase the chance of a race condition if not synchronized
+            try { Thread.sleep(100); } catch (InterruptedException e) { }
 
-    public void cancelBooking(String bookingId) throws CancellationException {
-        System.out.println("\nProcessing cancellation for: " + bookingId);
-
-        // 1. Validation: Does the reservation exist?
-        if (!activeBookings.containsKey(bookingId)) {
-            throw new CancellationException("Cancellation Failed: Booking ID " + bookingId + " not found.");
+            availableRooms--;
+            bookingQueue.add(guestName);
+            System.out.println("SUCCESS: " + guestName + " secured a room. Rooms left: " + availableRooms);
+        } else {
+            System.err.println("REJECTED: No rooms left for " + guestName);
         }
+    }
 
-        // 2. LIFO Rollback: Retrieve the Room ID
-        String roomIdToRelease = activeBookings.remove(bookingId);
-
-        // In a real LIFO rollback, we'd ensure the room being cancelled
-        // matches the top of the stack if we were doing a pure 'Undo'
-        allocatedRoomIds.remove(roomIdToRelease);
-
-        // 3. Inventory Restoration
-        availableRooms++;
-
-        System.out.println("SUCCESS: Room " + roomIdToRelease + " is now vacant.");
-        System.out.println("System State: " + availableRooms + " rooms available.");
+    public int getFinalRoomCount() {
+        return availableRooms;
     }
 }
 
-// --- Main Application ---
+// --- Main Application: Simulating Concurrent Users ---
 public class HotelBookingApp {
-    public static void main(String[] args) {
-        ReservationSystem system = new ReservationSystem();
+    public static void main(String[] args) throws InterruptedException {
+        ThreadSafeHotel hotel = new ThreadSafeHotel();
 
-        // Setup: Confirm some bookings
-        system.confirmBooking("BK-999", "101A");
-        system.confirmBooking("BK-888", "102B");
+        // Create a pool of threads to simulate multiple users acting at once
+        ExecutorService executor = Executors.newFixedThreadPool(5);
 
-        try {
-            // Test Case 1: Valid Cancellation
-            system.cancelBooking("BK-888");
+        String[] guests = {"Alice", "Bob", "Charlie", "Dave", "Eve"};
 
-            // Test Case 2: Duplicate Cancellation (Validation Check)
-            system.cancelBooking("BK-888");
+        System.out.println("--- Starting Concurrent Booking Simulation ---");
+        System.out.println("Initial Rooms: 2 | Total Guests: 5\n");
 
-        } catch (CancellationException e) {
-            System.err.println("ERROR: " + e.getMessage());
+        for (String guest : guests) {
+            executor.submit(() -> hotel.processBooking(guest));
         }
 
-        try {
-            // Test Case 3: Non-existent Booking
-            system.cancelBooking("BK-000");
-        } catch (CancellationException e) {
-            System.err.println("ERROR: " + e.getMessage());
+        // Shut down the executor and wait for all threads to finish
+        executor.shutdown();
+        executor.awaitTermination(5, TimeUnit.SECONDS);
+
+        System.out.println("\n--- Simulation Complete ---");
+        System.out.println("Final Inventory Count: " + hotel.getFinalRoomCount());
+
+        if (hotel.getFinalRoomCount() < 0) {
+            System.err.println("CRITICAL FAILURE: Race condition detected (Negative Inventory)!");
+        } else {
+            System.out.println("SYSTEM INTEGRITY: Inventory consistent.");
         }
     }
 }
